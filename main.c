@@ -1,5 +1,4 @@
 #include <avr/io.h>
-#include <time.h>
 #include <util/delay.h>
 
 /////////////////////////////////////////////////////////////////////////////
@@ -84,7 +83,7 @@
 
 #define LCD_DISP_LENGTH     16
 
-#define BUTTON_DEBOUNCE_TIME_MS 100
+#define BUTTON_DEBOUNCE_TIME 5000
 #define BUTTON1_PIN PB1
 
 static inline void lcd_rs_low(void)
@@ -95,6 +94,53 @@ static inline void lcd_rs_low(void)
 static inline void lcd_rs_high(void)
 {
     PORTD |= _BV(PD7);
+}
+
+uint8_t lcd_read_instr(void)
+{
+    uint8_t data;
+
+    lcd_rs_low();
+    lcd_rw_high();
+
+    //DDR(LCD_DATA4_PORT) &= 0x0F;         // configure data pins as input
+    DDR(LCD_DATA4_PORT) &= ~_BV(LCD_DATA4_PIN);         /* configure data pins as input */
+    DDR(LCD_DATA4_PORT) &= ~_BV(LCD_DATA5_PIN);         /* configure data pins as input */
+    DDR(LCD_DATA4_PORT) &= ~_BV(LCD_DATA6_PIN);         /* configure data pins as input */
+    DDR(LCD_DATA4_PORT) &= ~_BV(LCD_DATA7_PIN);         /* configure data pins as input */
+
+    lcd_e_high();
+    lcd_e_delay();        
+    data = PIN(LCD_DATA4_PORT) << 4;     /* read high nibble first */
+    lcd_e_low();
+    
+    lcd_e_delay();                       /* Enable 500ns low       */
+    
+    lcd_e_high();
+    lcd_e_delay();
+    data |= PIN(LCD_DATA4_PORT)&0x0F;    /* read low nibble        */
+    lcd_e_low();
+
+    DDR(LCD_DATA4_PORT) |= _BV(LCD_DATA4_PIN);         /* configure data pins as output */
+    DDR(LCD_DATA4_PORT) |= _BV(LCD_DATA5_PIN);         /* configure data pins as output */
+    DDR(LCD_DATA4_PORT) |= _BV(LCD_DATA6_PIN);         /* configure data pins as output */
+    DDR(LCD_DATA4_PORT) |= _BV(LCD_DATA7_PIN);         /* configure data pins as output */
+
+    return data;
+}
+
+uint8_t lcd_wait_busy(void)
+{
+    uint8_t data ;
+
+    do 
+    {
+        data = lcd_read_instr();
+    } while( data & _BV(LCD_INSTR_READ_BUSY));
+
+    _delay_us(1000);
+
+    return data & 0x7F;
 }
 
 void lcd_send_nibble(uint8_t data)
@@ -114,26 +160,36 @@ void lcd_send_nibble(uint8_t data)
     _delay_us(10);
 }
 
-void lcd_write(uint8_t data)
-{
-    //checkBusy();
-    lcd_rs_high();
-    lcd_rw_low();
-    lcd_send_nibble((data & 0xF0) >> 4);
-    lcd_send_nibble(data & 0x0F);
-}
-
 void lcd_write_instr(uint8_t data)
 {
-    //checkBusy();
+    lcd_wait_busy();
     lcd_rs_low();
     lcd_rw_low();
     lcd_send_nibble((data & 0xF0) >> 4);
     lcd_send_nibble(data & 0x0F);
 }
 
+void lcd_write(uint8_t data)
+{
+    uint8_t pos = LCD_START_LINE1;
+    pos = lcd_wait_busy();
+    lcd_rs_high();
+    lcd_rw_low();
+    
+    if( pos == (LCD_START_LINE1 + LCD_DISP_LENGTH) )
+    {
+        lcd_write_instr((1<<LCD_INSTR_DDRAM) + LCD_START_LINE2);    
+    }
+    else if( pos == (LCD_START_LINE2 + LCD_DISP_LENGTH) )
+    {
+        lcd_write_instr((1<<LCD_INSTR_DDRAM) + LCD_START_LINE1);
+    }
 
-void lcd_init(void)
+    lcd_send_nibble((data & 0xF0) >> 4);
+    lcd_send_nibble(data & 0x0F);
+}
+
+static void lcd_init(void)
 { 
     LCD_RS_DDR |= _BV(LCD_RS_PIN);
     LCD_RW_DDR |= _BV(LCD_RW_PIN);
@@ -158,26 +214,63 @@ void lcd_init(void)
     lcd_write_instr(0x17);
     lcd_write_instr(0x01);
     lcd_write_instr(0x02);
-    lcd_write_instr(0x0E);
+    lcd_write_instr(0x0F);
 }
 
 int main(void)
 {
+    uint8_t lastButtonState = 0;
+    uint8_t buttonState = 0;
+    uint32_t lastButtonTimeStamp = 0;
+    uint32_t buttonTimeStamp = 0;
+    char c = 'A';
+    uint8_t charWritten = 0;
     // Life pulse led
     DDRB |= _BV(PB0);
     PORTB |= _BV(PB0);
     DDRB |= _BV(PB2);
     PORTB |= _BV(PB2);
 
+    DDRB &= ~_BV(PB1);
+
+
     lcd_init();
+
+    // Delay needed otherwise malfunction of lcd
+    _delay_ms(1000);
 
     while (1)
     {
+        uint8_t tempButton = PINB & _BV(PB1);
 
-        PORTB &= ~_BV(PB0);
-        _delay_ms(1000);
-        PORTB |= _BV(PB0);
-        _delay_ms(1000);
+        buttonTimeStamp++;
+
+        if(tempButton != lastButtonState)
+        {
+            lastButtonTimeStamp = buttonTimeStamp;
+        }
+
+        if( (buttonTimeStamp - lastButtonTimeStamp) > BUTTON_DEBOUNCE_TIME )
+        {
+            buttonState = tempButton;
+            if( buttonState )
+            {
+                PORTB |= _BV(PB0);
+                if(charWritten == 0)
+                {
+                    charWritten = 1;
+                    lcd_write(c);
+                    c++;
+                }
+            }
+            else
+            {
+                charWritten = 0;
+                PORTB &= ~_BV(PB0);
+            }
+        }
+
+        lastButtonState = tempButton;
     }
 
     return 0;

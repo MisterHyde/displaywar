@@ -5,7 +5,7 @@ OBJCOPY = avr-objcopy
 OBJDUMP = avr-objdump
 FORMAT = ihex
 
-CFLAGS = -O2 -g3 -std=gnu99 -Wall -mmcu=$(MCU) -D F_CPU=16000000
+CFLAGS = -O2 -g2 -std=gnu99 -Wall -mmcu=$(MCU) -D F_CPU=16000000UL
 
 SRC = main.c
 TARGET = display
