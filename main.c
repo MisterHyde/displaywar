@@ -351,7 +351,6 @@ int main(void)
 
     // Delay needed otherwise malfunction of lcd
     _delay_ms(1000);
-    lcd_test();
 
     while (1)
     {
