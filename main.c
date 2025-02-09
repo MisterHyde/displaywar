@@ -88,12 +88,89 @@
 
 static inline void lcd_rs_low(void)
 {
-    //LCD_RS_PORT &= ~_BV(LCD_RS_PIN);
-    PORTD &= ~_BV(PD7);
+    LCD_RS_PORT &= ~_BV(LCD_RS_PIN);
 }
 static inline void lcd_rs_high(void)
 {
-    PORTD |= _BV(PD7);
+    LCD_RS_PORT |= _BV(LCD_RS_PIN);
+}
+
+void setBinaryLeds(uint8_t data)
+{
+    DDRC |= _BV(PC5);
+    DDRC |= _BV(PC4);
+    DDRC |= _BV(PC3);
+    DDRC |= _BV(PC2);
+    DDRC |= _BV(PC1);
+    DDRC |= _BV(PC0);
+    DDRB |= _BV(PB2);
+    DDRB |= _BV(PB0);
+
+    if(data & 0x01)
+    {
+        PORTC |= _BV(PC5);
+    }
+    else
+    {
+        PORTC &= ~_BV(PC5);
+    }
+    if(data & 0x02)
+    {
+        PORTC |= _BV(PC4);
+    }
+    else
+    {
+        PORTC &= ~_BV(PC4);
+    }
+    if(data & 0x04)
+    {
+        PORTC |= _BV(PC3);
+    }
+    else
+    {
+        PORTC &= ~_BV(PC3);
+    }
+    if(data & 0x08)
+    {
+        PORTC |= _BV(PC2);
+    }
+    else
+    {
+        PORTC &= ~_BV(PC2);
+    }
+    if(data & 0x10)
+    {
+        PORTC |= _BV(PC1);
+    }
+    else
+    {
+        PORTC &= ~_BV(PC1);
+    }
+    if(data & 0x20)
+    {
+        PORTC |= _BV(PC0);
+    }
+    else
+    {
+        PORTC &= ~_BV(PC0);
+    }
+
+    if(data & 0x40)
+    {
+        PORTB |= _BV(PB2);
+    }
+    else
+    {
+        PORTB &= ~_BV(PB2);
+    }
+    if(data & 0x80)
+    {
+        PORTB |= _BV(PB0);
+    }
+    else
+    {
+        PORTB &= ~_BV(PB0);
+    }
 }
 
 uint8_t lcd_read_instr(void)
@@ -103,7 +180,6 @@ uint8_t lcd_read_instr(void)
     lcd_rs_low();
     lcd_rw_high();
 
-    //DDR(LCD_DATA4_PORT) &= 0x0F;         // configure data pins as input
     DDR(LCD_DATA4_PORT) &= ~_BV(LCD_DATA4_PIN);         /* configure data pins as input */
     DDR(LCD_DATA4_PORT) &= ~_BV(LCD_DATA5_PIN);         /* configure data pins as input */
     DDR(LCD_DATA4_PORT) &= ~_BV(LCD_DATA6_PIN);         /* configure data pins as input */
@@ -112,6 +188,7 @@ uint8_t lcd_read_instr(void)
     lcd_e_high();
     lcd_e_delay();        
     data = PIN(LCD_DATA4_PORT) << 4;     /* read high nibble first */
+    lcd_e_delay();
     lcd_e_low();
     
     lcd_e_delay();                       /* Enable 500ns low       */
@@ -119,26 +196,30 @@ uint8_t lcd_read_instr(void)
     lcd_e_high();
     lcd_e_delay();
     data |= PIN(LCD_DATA4_PORT)&0x0F;    /* read low nibble        */
+    lcd_e_delay();
     lcd_e_low();
-
-    DDR(LCD_DATA4_PORT) |= _BV(LCD_DATA4_PIN);         /* configure data pins as output */
-    DDR(LCD_DATA4_PORT) |= _BV(LCD_DATA5_PIN);         /* configure data pins as output */
-    DDR(LCD_DATA4_PORT) |= _BV(LCD_DATA6_PIN);         /* configure data pins as output */
-    DDR(LCD_DATA4_PORT) |= _BV(LCD_DATA7_PIN);         /* configure data pins as output */
 
     return data;
 }
 
+/**
+ *  \brief Wait for busy flag turn low and than return the 
+ *         address of the last character written (not the curser pos)
+ *
+ *  \return Address of the last written character
+ */
 uint8_t lcd_wait_busy(void)
 {
-    uint8_t data ;
+    uint8_t data;
 
     do 
     {
         data = lcd_read_instr();
     } while( data & _BV(LCD_INSTR_READ_BUSY));
 
-    _delay_us(1000);
+    _delay_us(10);
+
+    setBinaryLeds(data);
 
     return data & 0x7F;
 }
@@ -155,9 +236,9 @@ void lcd_send_nibble(uint8_t data)
     LCD_DATA4_PORT |= data & 0x0F;
 
     lcd_e_high();
-    _delay_us(10);
+    lcd_e_delay();
     lcd_e_low();
-    _delay_us(10);
+    lcd_e_delay();
 }
 
 void lcd_write_instr(uint8_t data)
@@ -165,8 +246,10 @@ void lcd_write_instr(uint8_t data)
     lcd_wait_busy();
     lcd_rs_low();
     lcd_rw_low();
+    _delay_us(1);
     lcd_send_nibble((data & 0xF0) >> 4);
     lcd_send_nibble(data & 0x0F);
+    _delay_us(10);
 }
 
 void lcd_write(uint8_t data)
@@ -175,21 +258,21 @@ void lcd_write(uint8_t data)
     pos = lcd_wait_busy();
     lcd_rs_high();
     lcd_rw_low();
-    
-    if( pos == (LCD_START_LINE1 + LCD_DISP_LENGTH) )
+ 
+    if( pos == 0x10 ) 
     {
-        lcd_write_instr((1<<LCD_INSTR_DDRAM) + LCD_START_LINE2);    
+        lcd_write_instr(0xC0);    
     }
-    else if( pos == (LCD_START_LINE2 + LCD_DISP_LENGTH) )
+    else if( pos == 0x50 )
     {
-        lcd_write_instr((1<<LCD_INSTR_DDRAM) + LCD_START_LINE1);
+        lcd_write_instr(0x80);
     }
 
     lcd_send_nibble((data & 0xF0) >> 4);
     lcd_send_nibble(data & 0x0F);
 }
 
-static void lcd_init(void)
+void lcd_init(void)
 { 
     LCD_RS_DDR |= _BV(LCD_RS_PIN);
     LCD_RW_DDR |= _BV(LCD_RW_PIN);
@@ -217,13 +300,43 @@ static void lcd_init(void)
     lcd_write_instr(0x0F);
 }
 
+// Clears 
+inline void lcd_clear_display(void)
+{
+    lcd_write_instr(_BV(LCD_INSTR_CLR_DISP));
+}
+
+inline void lcd_return_home(void)
+{
+    lcd_write_instr(_BV(LCD_INSTR_RETURN_HOME));
+}
+
+static inline void lcd_display_off(void)
+{
+    lcd_write_instr(_BV(LCD_INSTR_DISP_ONOFF_CTRL));
+}
+
+static inline void lcd_display_on(void)
+{
+    lcd_write_instr(0x0F);
+}
+
+static inline void lcd_write_ddram_addr(uint8_t data)
+{
+    if( data <= 0x67 )
+    {
+        lcd_write_instr((1 << LCD_INSTR_SET_DDDRAM_ADDRESS) + data);
+    }
+}
+
+
 int main(void)
 {
     uint8_t lastButtonState = 0;
     uint8_t buttonState = 0;
     uint32_t lastButtonTimeStamp = 0;
     uint32_t buttonTimeStamp = 0;
-    char c = 'A';
+    char c = 'H';
     uint8_t charWritten = 0;
     // Life pulse led
     DDRB |= _BV(PB0);
@@ -238,6 +351,7 @@ int main(void)
 
     // Delay needed otherwise malfunction of lcd
     _delay_ms(1000);
+    lcd_test();
 
     while (1)
     {
@@ -255,18 +369,23 @@ int main(void)
             buttonState = tempButton;
             if( buttonState )
             {
-                PORTB |= _BV(PB0);
                 if(charWritten == 0)
                 {
                     charWritten = 1;
                     lcd_write(c);
-                    c++;
+                    if(c == 'z')
+                    {
+                        c = 'A';
+                    }
+                    else
+                    {
+                        c++;
+                    }
                 }
             }
             else
             {
                 charWritten = 0;
-                PORTB &= ~_BV(PB0);
             }
         }
 
