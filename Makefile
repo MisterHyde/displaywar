@@ -7,7 +7,7 @@ FORMAT = ihex
 
 CFLAGS = -O2 -g2 -std=gnu99 -Wall -mmcu=$(MCU) -D F_CPU=16000000UL
 
-SRC = main.c
+SRC = main.c lcd_w162_x9lg.c
 TARGET = display
 
 OBJ = $(SRC:.c=.o) $(ASRC:.S=.o) 
